@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>AGÜ Ders Programı</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <main class="wrap">
+    <header>
+      <div>
+        <div class="eyebrow">ABDULLAH GÜL ÜNİVERSİTESİ</div>
+        <h1>Ders Programım</h1>
+        <p>Ders kodunu yazın, mevcut şubeler otomatik gelsin; seçtiğiniz derslerden haftalık programınız oluşturulsun.</p>
+      </div>
+      
+    </header>
+
+    <section class="card input-card">
+      <div class="section-title">
+        <h2>Dersler</h2>
+        <button id="addRow" class="ghost">+ Ders ekle</button>
+      </div>
+      <div id="courseRows"></div>
+      <div class="actions">
+        <button id="loadBtn" class="primary">Programı Getir</button>
+        <button id="clearBtn" class="ghost">Temizle</button>
+      </div>
+      <div id="status" class="status"></div>
+    </section>
+
+    <section id="warnings" class="warnings hidden"></section>
+
+    <section id="results" class="hidden">
+      <div class="toolbar">
+        <div>
+          <h2>Haftalık Ders Programı</h2>
+          <p id="summary"></p>
+        </div>
+        <button id="printBtn" class="ghost">Yazdır / PDF</button>
+      </div>
+
+      <div class="calendar-scroll">
+        <div id="calendar" class="calendar"></div>
+      </div>
+    </section>
+  </main>
+<script src="app.js"></script>
+</body>
+</html>
