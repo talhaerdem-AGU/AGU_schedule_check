@@ -1,25 +1,11 @@
-# AGÜ Ders Programı Web v6
+# AGÜ Ders Programı v7
 
-Kullanıcı dostu hosted sürüm.
+Bu sürüm, AGUCAT kaynak verisinde gerçek şube numarası varsa doğrudan Şube 1/2/3 olarak gösterir.
 
-## Kullanım
-Kullanıcı yalnızca web adresini açar:
-1. Ders kodunu yazar (örn. `EE3999`).
-2. Uygulama AGUCAT'tan mevcut şubeleri otomatik getirir.
-3. Kullanıcı açılır listeden şubesini seçer.
-4. İstenirse başka dersler eklenir.
-5. **Programı Getir** ile haftalık tablo oluşturulur.
+AGUCAT gerçek şube numarasını yayınlamıyorsa, aynı ders koduna ait farklı programları öğretim elemanı + gün/saat bilgisine göre **Program grubu** olarak ayırır. Böylece tüm şubeler aynı anda takvime düşmez.
 
-Tek şube varsa otomatik seçilir. Şube bilgisi kaynak veride doğrulanamazsa uygulama bunu açıkça bildirir ve rastgele/tahmini şube göstermez.
+## Render
+Repo kökünde `render.yaml` ve `Dockerfile` hazırdır. Render Blueprint ile deploy edilebilir.
 
-## Sunucu kurulumu
-Render için `render.yaml` ve `Dockerfile` dahildir. Sunucuya bir kez deploy edildikten sonra son kullanıcı Node.js, Terminal veya Playwright başlatmaz.
-
-## Yerel geliştirme
-```bash
-npm install
-npx playwright install chromium
-npm start
-```
-
-Ardından `http://localhost:3000`.
+## Önemli
+Program grubu, gerçek şube numarası değildir; yalnız AGUCAT'ın herkese açık verisinden güvenli biçimde ayrıştırılabilen program alternatifidir. Gerçek şube numarasının gösterilebilmesi için AGÜ'nün şube bilgisini içeren bir servis/endpoint sağlaması gerekir.

@@ -39,14 +39,20 @@ async function loadSectionsForRow(row){
     if(!r.ok) throw new Error(data.error||'Şubeler alınamadı.');
     const sections=data.sections||[];
     if(!sections.length){
-      hint.textContent=data.warning||'Şube bilgisi bulunamadı.'; hint.className='section-hint error';
+      hint.textContent=data.warning||'Program seçeneği bulunamadı.'; hint.className='section-hint error';
       return;
     }
-    sectionSelect.innerHTML='<option value="">Şube seçin</option>'+sections.map(s=>`<option value="${escapeHtml(s)}">Şube ${escapeHtml(s)}</option>`).join('');
+    const placeholder=data.mode==='real-section'?'Şube seçin':'Program grubunu seçin';
+    sectionSelect.innerHTML=`<option value="">${placeholder}</option>`+sections.map(s=>`<option value="${escapeHtml(s.value)}">${escapeHtml(s.label)}</option>`).join('');
     sectionSelect.disabled=false;
-    if(sections.length===1){ sectionSelect.value=sections[0]; hint.textContent='Tek şube bulundu ve otomatik seçildi.'; }
-    else hint.textContent=`${sections.length} şube bulundu.`;
-    hint.className='section-hint ok';
+    if(sections.length===1){ sectionSelect.value=sections[0].value; }
+    if(data.mode==='real-section') {
+      hint.textContent=sections.length===1?'Tek şube bulundu ve otomatik seçildi.':`${sections.length} şube bulundu.`;
+      hint.className='section-hint ok';
+    } else {
+      hint.textContent=data.warning||`${sections.length} program grubu bulundu.`;
+      hint.className='section-hint muted';
+    }
   }catch(e){
     if(row.dataset.requestId!==requestId) return;
     hint.textContent=e.message; hint.className='section-hint error';
@@ -124,7 +130,7 @@ function renderCalendar(rows,conflicts){
     const originalIndex=rows.indexOf(r),day=canonicalDay(r.day),dayIndex=days.indexOf(day),startIndex=boundaries.indexOf(timeToMinutes(r.start)),endIndex=boundaries.indexOf(timeToMinutes(r.end));
     if(dayIndex<0||startIndex<0||endIndex<=startIndex)return;
     const info=lanes.get(visibleIndex)||{lane:0,lanes:1}; const ev=document.createElement('div');ev.className='event'+(conflicts.has(originalIndex)?' conflict':'');ev.style.gridColumn=String(dayIndex+2);ev.style.gridRow=`${startIndex+2} / ${endIndex+2}`;ev.style.setProperty('--lane',info.lane);ev.style.setProperty('--lanes',info.lanes);
-    ev.innerHTML=`<div class="event-code">${escapeHtml(r.code)}${r.section?` <span>Şube ${escapeHtml(r.section)}</span>`:''}</div><div class="event-time">${escapeHtml(r.start)} – ${escapeHtml(r.end)}</div><div class="event-room">${escapeHtml(r.room||'Derslik belirtilmemiş')}</div>${r.instructor?`<div class="event-instructor">${escapeHtml(r.instructor)}</div>`:''}${conflicts.has(originalIndex)?'<div class="conflict-badge">⚠ Çakışma</div>':''}`;
+    ev.innerHTML=`<div class="event-code">${escapeHtml(r.code)}${r.section&&!String(r.section).startsWith('__offer_')?` <span>Şube ${escapeHtml(r.section)}</span>`:''}</div><div class="event-time">${escapeHtml(r.start)} – ${escapeHtml(r.end)}</div><div class="event-room">${escapeHtml(r.room||'Derslik belirtilmemiş')}</div>${r.instructor?`<div class="event-instructor">${escapeHtml(r.instructor)}</div>`:''}${conflicts.has(originalIndex)?'<div class="conflict-badge">⚠ Çakışma</div>':''}`;
     calendarEl.appendChild(ev);
   });
 }

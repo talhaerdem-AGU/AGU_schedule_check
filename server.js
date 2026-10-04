@@ -154,6 +154,33 @@ async function setMaxPageLength(page) {
   }
 }
 
+
+function inferOfferingGroups(rows) {
+  const usable = rows.filter(r => r && r.code);
+  const buckets = new Map();
+  for (const r of usable) {
+    // AGUCAT public table has no explicit section number.
+    // Use instructor + program + class year as the most conservative fallback grouping key.
+    const key = [norm(r.instructor), norm(r.program), norm(r.classYear)].join('|');
+    if (!buckets.has(key)) buckets.set(key, []);
+    buckets.get(key).push(r);
+  }
+  const groups = [...buckets.values()].filter(g => g.length);
+  return groups.map((g, i) => {
+    const sessions = g
+      .filter(x => x.day && x.start && x.end)
+      .sort((a,b) => (norm(a.day)+a.start).localeCompare(norm(b.day)+b.start));
+    const instructor = g.find(x=>x.instructor)?.instructor || '';
+    const program = g.find(x=>x.program)?.program || '';
+    const schedule = sessions.slice(0,3).map(x => `${x.day} ${x.start}-${x.end}${x.room?` ${x.room}`:''}`).join(' · ');
+    return {
+      id:`__offer_${i+1}`,
+      label:`Program grubu ${i+1}${instructor?` — ${instructor}`:''}${schedule?` — ${schedule}`:''}`,
+      instructor, program, sessions:g
+    };
+  });
+}
+
 function bestRawMatch(objects, visibleRow, requestedSection='') {
   const req = norm(normalizeSection(requestedSection));
   const scored = objects.map(o => {
@@ -235,11 +262,18 @@ async function fetchRequestedLessons(courses, debugCode='') {
       const codeMatches=rows.length;
 
       if (q.section) {
-        const sectionRows=rows.filter(r=>r.section && norm(normalizeSection(r.section))===reqSec);
-        if (sectionRows.length) rows=sectionRows;
-        else {
-          rows=[];
-          warnings.push(`${q.code}: Şube ${q.section} kaynak veride doğrulanamadığı için diğer şubelerin kayıtları gösterilmedi. /api/debug?code=${encodeURIComponent(q.code)} adresinden AGUCAT ham alanlarını kontrol edebilirsiniz.`);
+        if (String(q.section).startsWith('__offer_')) {
+          const groups=inferOfferingGroups(rows);
+          const g=groups.find(x=>x.id===q.section);
+          rows=g?g.sessions:[];
+          if (!rows.length) warnings.push(`${q.code}: Seçilen program grubu artık bulunamadı; ders programı kaynağı değişmiş olabilir.`);
+        } else {
+          const sectionRows=rows.filter(r=>r.section && norm(normalizeSection(r.section))===reqSec);
+          if (sectionRows.length) rows=sectionRows;
+          else {
+            rows=[];
+            warnings.push(`${q.code}: Şube ${q.section} kaynak veride doğrulanamadığı için diğer şubelerin kayıtları gösterilmedi.`);
+          }
         }
       }
 
@@ -269,16 +303,30 @@ app.get('/api/sections', async (req,res)=>{
   if(!code) return res.status(400).json({error:'Ders kodu gerekli.'});
   try {
     const data=await fetchRequestedLessons([{code,section:''}]);
-    const sections=[...new Set((data.rows||[])
+    const realSections=[...new Set((data.rows||[])
       .map(r=>normalizeSection(r.section||''))
       .filter(Boolean))]
       .sort((a,b)=>String(a).localeCompare(String(b),'tr',{numeric:true,sensitivity:'base'}));
+    if (realSections.length) {
+      return res.json({
+        code,
+        mode:'real-section',
+        sections:realSections.map(s=>({value:s,label:`Şube ${s}`})),
+        sectionDetected:true,
+        rowCount:(data.rows||[]).length,
+        warning:null
+      });
+    }
+    const groups=inferOfferingGroups(data.rows||[]);
     res.json({
       code,
-      sections,
-      sectionDetected:sections.length>0,
+      mode:'inferred-offering',
+      sections:groups.map(g=>({value:g.id,label:g.label})),
+      sectionDetected:false,
       rowCount:(data.rows||[]).length,
-      warning:sections.length?null:'Bu ders için şube bilgisi AGUCAT kaynak verisinde doğrulanamadı.'
+      warning:groups.length
+        ? 'AGUCAT bu derste gerçek şube numarasını yayınlamıyor. Programlar öğretim elemanı ve saat bilgisine göre ayrı seçenekler halinde gösteriliyor.'
+        : 'Bu ders için program kaydı bulunamadı.'
     });
   } catch(e) {
     console.error(e);
@@ -309,4 +357,4 @@ app.post('/api/schedule',async(req,res)=>{
   }
 });
 
-app.listen(PORT,()=>console.log(`AGÜ Ders Programı v6: http://localhost:${PORT}`));
+app.listen(PORT,()=>console.log(`AGÜ Ders Programı v7: http://localhost:${PORT}`));
