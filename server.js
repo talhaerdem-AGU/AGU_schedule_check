@@ -7,354 +7,176 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
-const SOURCE_URL = 'https://cat.agu.edu.tr/Lesson/GetLessons';
+const PRIMARY_URL = 'https://calendars.agu.edu.tr/timetable';
+const FALLBACK_URL = 'https://cat.agu.edu.tr/Lesson/GetLessons';
 
-app.use(express.json({ limit: '200kb' }));
-app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.json({limit:'200kb'}));
+app.use(express.static(path.join(__dirname,'public')));
 
-const norm = (v='') => String(v)
-  .replace(/İ/g,'I').replace(/ı/g,'i')
-  .normalize('NFD').replace(/[\u0300-\u036f]/g,'')
-  .replace(/\s+/g,' ').trim().toLowerCase();
-const compactCode = (v='') => norm(v).replace(/[^a-z0-9]/g,'');
-const normalizeSection = (v='') => String(v)
-  .replace(/^\s*(şube|sube|section|grup|group|branch)\s*[:#-]?\s*/i,'').trim();
+const norm=(v='')=>String(v).replace(/İ/g,'I').replace(/ı/g,'i').normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/\s+/g,' ').trim().toLowerCase();
+const compact=(v='')=>norm(v).replace(/[^a-z0-9]/g,'');
+const secNorm=(v='')=>String(v).replace(/^\s*(şube|sube|section|grup|group|branch)\s*[:#-]?\s*/i,'').trim();
 
-function dedupe(rows) {
-  const m = new Map();
-  for (const r of rows) {
-    const key = [compactCode(r.code),norm(r.section),norm(r.day),norm(r.start),norm(r.end),norm(r.room),norm(r.instructor)].join('|');
-    if (!m.has(key)) m.set(key, r);
-  }
-  return [...m.values()];
-}
-
-function scalarEntries(obj, prefix='') {
-  const out = [];
-  if (!obj || typeof obj !== 'object') return out;
-  for (const [k,v] of Object.entries(obj)) {
-    const p = prefix ? `${prefix}.${k}` : k;
-    if (v == null) continue;
-    if (['string','number','boolean'].includes(typeof v)) out.push([p, String(v)]);
-    else if (typeof v === 'object' && !Array.isArray(v)) out.push(...scalarEntries(v,p));
+function scalars(obj,p=''){
+  const out=[]; if(!obj||typeof obj!=='object') return out;
+  for(const [k,v] of Object.entries(obj)){
+    const key=p?`${p}.${k}`:k;
+    if(v==null) continue;
+    if(['string','number','boolean'].includes(typeof v)) out.push([key,String(v)]);
+    else if(typeof v==='object'&&!Array.isArray(v)) out.push(...scalars(v,key));
   }
   return out;
 }
-
-function pickByKey(obj, regexes) {
-  const entries = scalarEntries(obj);
-  for (const re of regexes) {
-    const hit = entries.find(([k]) => re.test(norm(k).replace(/[^a-z0-9]/g,'')));
-    if (hit) return hit[1];
+function pick(obj, regs){
+  for(const [k,v] of scalars(obj)){
+    const kk=norm(k).replace(/[^a-z0-9]/g,'');
+    if(regs.some(re=>re.test(kk))) return v;
   }
   return '';
 }
-
-function objectContainsCode(obj, code) {
-  const cc = compactCode(code);
-  return scalarEntries(obj).some(([,v]) => compactCode(v) === cc);
-}
-
-function collectMatchingObjects(root, code, limit=300) {
-  const out=[]; const seen=new WeakSet();
-  function walk(x, depth=0) {
-    if (out.length>=limit || depth>12 || x==null) return;
-    if (typeof x !== 'object') return;
-    if (seen.has(x)) return; seen.add(x);
-    if (!Array.isArray(x) && objectContainsCode(x, code)) out.push(x);
-    if (Array.isArray(x)) for (const v of x) walk(v,depth+1);
-    else for (const v of Object.values(x)) walk(v,depth+1);
-  }
-  walk(root);
-  return out;
-}
-
-const K = {
-  code:[/^(ders|course|lesson)?code$/,/derskodu/,/coursecode/,/lessoncode/],
-  section:[/sube/,/section/,/grup/,/group/,/branch/],
-  name:[/dersadi/,/coursename/,/lessonname/,/^name$/],
-  day:[/^gun$/,/day/,/weekday/],
-  start:[/baslangic/,/bas.*saat/,/start.*time/,/^start$/],
-  end:[/bitis/,/bit.*saat/,/end.*time/,/^end$/],
-  room:[/derslik/,/classroom/,/^room$/,/location/],
-  instructor:[/ogretim.*eleman/,/instructor/,/lecturer/,/teacher/,/academician/],
-  faculty:[/fakulte/,/faculty/],
-  program:[/program/,/department/],
-  classYear:[/sinif/,/classyear/,/grade/]
+const K={
+  code:[/^(course|lesson|ders)?code$/,/derskodu/,/coursecode/,/lessoncode/],
+  section:[/section/,/sube/,/grup/,/group/,/branch/],
+  name:[/coursename/,/lessonname/,/dersadi/,/^name$/],
+  instructor:[/instructor/,/lecturer/,/teacher/,/academician/,/ogretimeleman/],
+  day:[/^day$/,/weekday/,/^gun$/],
+  start:[/starttime/,/baslangic/,/bassaat/,/^start$/],
+  end:[/endtime/,/bitis/,/bitsaat/,/^end$/],
+  room:[/classroom/,/^room$/,/derslik/,/location/],
+  program:[/program/,/department/], faculty:[/faculty/,/fakulte/], classYear:[/classyear/,/grade/,/sinif/]
 };
+function fromObj(o){return {code:pick(o,K.code),section:pick(o,K.section),name:pick(o,K.name),instructor:pick(o,K.instructor),day:pick(o,K.day),start:pick(o,K.start),end:pick(o,K.end),room:pick(o,K.room),program:pick(o,K.program),faculty:pick(o,K.faculty),classYear:pick(o,K.classYear)}}
+function containsCode(o,code){return scalars(o).some(([,v])=>compact(v)===compact(code));}
+function collect(root,code,limit=1000){const out=[],seen=new WeakSet();function walk(x,d=0){if(!x||typeof x!=='object'||d>15||out.length>=limit||seen.has(x))return;seen.add(x);if(!Array.isArray(x)&&containsCode(x,code))out.push(x);if(Array.isArray(x))for(const v of x)walk(v,d+1);else for(const v of Object.values(x))walk(v,d+1);}walk(root);return out;}
+function dedupe(rows){const m=new Map();for(const r of rows){const key=[compact(r.code),norm(secNorm(r.section)),norm(r.instructor),norm(r.day),norm(r.start),norm(r.end),norm(r.room)].join('|');if(!m.has(key))m.set(key,r);}return [...m.values()];}
 
-function rowFromObject(o, fallback={}) {
-  return {
-    code: pickByKey(o,K.code) || fallback.code || '',
-    section: pickByKey(o,K.section) || fallback.section || '',
-    name: pickByKey(o,K.name) || fallback.name || '',
-    instructor: pickByKey(o,K.instructor) || fallback.instructor || '',
-    day: pickByKey(o,K.day) || fallback.day || '',
-    start: pickByKey(o,K.start) || fallback.start || '',
-    end: pickByKey(o,K.end) || fallback.end || '',
-    room: pickByKey(o,K.room) || fallback.room || '',
-    faculty: pickByKey(o,K.faculty) || fallback.faculty || '',
-    program: pickByKey(o,K.program) || fallback.program || '',
-    classYear: pickByKey(o,K.classYear) || fallback.classYear || ''
-  };
-}
-
-async function extractVisibleRows(page) {
-  return await page.evaluate(() => {
-    const table = document.querySelector('table');
-    if (!table) return [];
-    return [...table.querySelectorAll('tbody tr')].map(tr => {
-      const td = [...tr.querySelectorAll('td')].map(x => (x.innerText || x.textContent || '').trim());
-      if (td.length < 6) return null;
-      const html = tr.outerHTML || '';
-      let section = '';
-      const patterns = [
-        /(?:section|sube|şube|group|grup|branch)\s*[=:"'\s-]+([A-Za-z0-9._-]+)/i,
-        /[?&](?:section|sube|şube|group|grup|branch)=([^&"']+)/i,
-        /data-(?:section|sube|group|grup|branch)=["']([^"']+)/i
-      ];
-      for (const re of patterns) { const m = html.match(re); if (m) { section = decodeURIComponent(m[1]); break; } }
-      return {
-        code: td[0] || '', name: td[1] || '', instructor: td[2] || '', day: td[3] || '',
-        start: td[4] || '', end: td[5] || '', room: td[6] || '', faculty: td[7] || '',
-        program: td[8] || '', classYear: td[9] || '', section,
-        _html: html.slice(0,5000)
-      };
-    }).filter(Boolean);
-  });
-}
-
-async function extractDataTablesRaw(page) {
-  return await page.evaluate(() => {
-    try {
-      const table = document.querySelector('table');
-      const jq = window.jQuery || window.$;
-      if (!table || !jq || !jq.fn || !jq.fn.dataTable || !jq.fn.dataTable.isDataTable(table)) return [];
-      const dt = jq(table).DataTable();
-      return dt.rows({ search:'applied' }).data().toArray();
-    } catch { return []; }
-  });
-}
-
-async function findSearchInput(page) {
-  const selectors = ['input[type="search"]','.dataTables_filter input','input[placeholder*="Ara" i]','input[placeholder*="Search" i]'];
-  for (const sel of selectors) { const loc=page.locator(sel).first(); if (await loc.count()) return loc; }
-  return null;
-}
-
-async function setMaxPageLength(page) {
-  for (const sel of ['select[name$="_length"]','.dataTables_length select']) {
-    const loc=page.locator(sel).first();
-    if (await loc.count()) {
-      const values=await loc.locator('option').evaluateAll(opts=>opts.map(o=>o.value));
-      const preferred=['-1','1000','500','250','100'].find(v=>values.includes(v));
-      if (preferred) { await loc.selectOption(preferred).catch(()=>{}); await page.waitForTimeout(500); }
-      return;
-    }
-  }
-}
-
-
-function inferOfferingGroups(rows) {
-  const usable = rows.filter(r => r && r.code);
-  const buckets = new Map();
-  for (const r of usable) {
-    // AGUCAT public table has no explicit section number.
-    // Use instructor + program + class year as the most conservative fallback grouping key.
-    const key = [norm(r.instructor), norm(r.program), norm(r.classYear)].join('|');
-    if (!buckets.has(key)) buckets.set(key, []);
-    buckets.get(key).push(r);
-  }
-  const groups = [...buckets.values()].filter(g => g.length);
-  return groups.map((g, i) => {
-    const sessions = g
-      .filter(x => x.day && x.start && x.end)
-      .sort((a,b) => (norm(a.day)+a.start).localeCompare(norm(b.day)+b.start));
-    const instructor = g.find(x=>x.instructor)?.instructor || '';
-    const program = g.find(x=>x.program)?.program || '';
-    const schedule = sessions.slice(0,3).map(x => `${x.day} ${x.start}-${x.end}${x.room?` ${x.room}`:''}`).join(' · ');
-    return {
-      id:`__offer_${i+1}`,
-      label:`Program grubu ${i+1}${instructor?` — ${instructor}`:''}${schedule?` — ${schedule}`:''}`,
-      instructor, program, sessions:g
-    };
-  });
-}
-
-function bestRawMatch(objects, visibleRow, requestedSection='') {
-  const req = norm(normalizeSection(requestedSection));
-  const scored = objects.map(o => {
-    const r=rowFromObject(o);
-    let score=0;
-    if (compactCode(r.code)===compactCode(visibleRow.code)) score+=8;
-    if (r.day && norm(r.day)===norm(visibleRow.day)) score+=4;
-    if (r.start && norm(r.start)===norm(visibleRow.start)) score+=4;
-    if (r.end && norm(r.end)===norm(visibleRow.end)) score+=4;
-    if (r.room && norm(r.room)===norm(visibleRow.room)) score+=3;
-    if (r.instructor && norm(r.instructor)===norm(visibleRow.instructor)) score+=2;
-    if (req && r.section && norm(normalizeSection(r.section))===req) score+=10;
-    return {o,r,score};
-  }).sort((a,b)=>b.score-a.score);
-  return scored[0] || null;
-}
-
-async function fetchRequestedLessons(courses, debugCode='') {
-  const browser = await chromium.launch({ headless:true });
-  try {
-    const page=await browser.newPage({ locale:'tr-TR' });
-    const jsonPayloads=[];
-    page.on('response', async response => {
-      try {
+async function scrapeSource(url,codes){
+  const browser=await chromium.launch({headless:true,args:['--no-sandbox']});
+  try{
+    const page=await browser.newPage({locale:'tr-TR'});
+    const payloads=[];
+    page.on('response',async response=>{
+      try{
         const ct=(response.headers()['content-type']||'').toLowerCase();
-        const rt=response.request().resourceType();
-        if (!(ct.includes('json') || rt==='xhr' || rt==='fetch')) return;
-        const txt=await response.text();
-        if (!txt || txt.length>8_000_000) return;
-        let data; try { data=JSON.parse(txt); } catch { return; }
-        jsonPayloads.push({ url:response.url(), data });
-      } catch {}
+        const typ=response.request().resourceType();
+        if(!(ct.includes('json')||typ==='xhr'||typ==='fetch'))return;
+        const txt=await response.text(); if(!txt||txt.length>15_000_000)return;
+        let data; try{data=JSON.parse(txt)}catch{return}
+        payloads.push({url:response.url(),data});
+      }catch{}
+    });
+    await page.goto(url,{waitUntil:'domcontentloaded',timeout:70000});
+    await page.waitForTimeout(5000);
+
+    // capture app state embedded in scripts as JSON-ish text where possible
+    const scriptTexts=await page.locator('script').allTextContents().catch(()=>[]);
+    const domRecords=await page.evaluate(()=>{
+      const rows=[];
+      for(const tr of document.querySelectorAll('tr')){
+        const c=[...tr.querySelectorAll('th,td')].map(x=>(x.innerText||x.textContent||'').trim());
+        if(c.length>=4) rows.push({cells:c,html:tr.outerHTML.slice(0,8000)});
+      }
+      // Also capture card/list items because current timetable may not use a table.
+      const blocks=[];
+      for(const el of document.querySelectorAll('[class*="course" i],[class*="lesson" i],[class*="event" i],[class*="schedule" i],[class*="timetable" i]')){
+        const text=(el.innerText||'').trim(); if(text&&text.length<5000) blocks.push({text,html:el.outerHTML.slice(0,8000)});
+      }
+      return {rows,blocks,body:(document.body?.innerText||'').slice(0,500000)};
     });
 
-    await page.goto(SOURCE_URL,{waitUntil:'domcontentloaded',timeout:60000});
-    await page.waitForFunction(()=>document.querySelectorAll('table tbody tr td').length>=6,{timeout:90000});
-    await page.waitForTimeout(1200);
-    await setMaxPageLength(page);
-    const search=await findSearchInput(page);
+    const byCode={};
+    for(const code of codes){
+      const objs=[];
+      for(const p of payloads) objs.push(...collect(p.data,code));
+      // direct rows from structured JSON
+      let rows=objs.map(fromObj).filter(r=>compact(r.code)===compact(code));
 
-    const allRows=[], notFound=[], warnings=[];
-    let sectionDetected=false;
-    const debug={ code:debugCode, payloadUrls:jsonPayloads.map(x=>x.url), candidates:[] };
-
-    for (const q of courses) {
-      if (search) { await search.fill(''); await search.fill(q.code); await page.waitForTimeout(800); }
-      let visible=(await extractVisibleRows(page)).filter(r=>compactCode(r.code)===compactCode(q.code));
-      const rawDt=await extractDataTablesRaw(page);
-      const sources=[...rawDt, ...jsonPayloads.map(x=>x.data)];
-      let rawObjects=[];
-      for (const src of sources) rawObjects.push(...collectMatchingObjects(src,q.code));
-
-      // DataTables can return array rows; hidden columns may contain section. Preserve those too.
-      const dtArrayMatches=rawDt.filter(x=>Array.isArray(x) && x.some(v=>compactCode(v)===compactCode(q.code)));
-      const reqSec=norm(normalizeSection(q.section));
-
-      const enriched=visible.map(v=>{
-        if (v.section) return v;
-        const best=bestRawMatch(rawObjects,v,q.section);
-        if (best && best.score>=8 && best.r.section) return {...v,section:best.r.section,_rawScore:best.score};
-        // If DataTables raw row has hidden extra columns and exactly one equals requested section, use it.
-        if (q.section) {
-          for (const arr of dtArrayMatches) {
-            const vals=arr.map(x=>String(x??''));
-            const extra=vals.slice(10);
-            const hit=extra.find(x=>norm(normalizeSection(x))===reqSec);
-            if (hit) return {...v,section:hit,_rawScore:7};
-          }
-        }
-        return v;
-      });
-
-      // Also build full rows directly from JSON objects when they contain schedule fields.
-      const direct=rawObjects.map(o=>rowFromObject(o)).filter(r=>
-        compactCode(r.code)===compactCode(q.code) && r.day && r.start && r.end
-      );
-      let rows=dedupe([...enriched,...direct]);
-      sectionDetected ||= rows.some(r=>r.section);
-      const codeMatches=rows.length;
-
-      if (q.section) {
-        if (String(q.section).startsWith('__offer_')) {
-          const groups=inferOfferingGroups(rows);
-          const g=groups.find(x=>x.id===q.section);
-          rows=g?g.sessions:[];
-          if (!rows.length) warnings.push(`${q.code}: Seçilen program grubu artık bulunamadı; ders programı kaynağı değişmiş olabilir.`);
-        } else {
-          const sectionRows=rows.filter(r=>r.section && norm(normalizeSection(r.section))===reqSec);
-          if (sectionRows.length) rows=sectionRows;
-          else {
-            rows=[];
-            warnings.push(`${q.code}: Şube ${q.section} kaynak veride doğrulanamadığı için diğer şubelerin kayıtları gösterilmedi.`);
-          }
-        }
+      // DOM table heuristic: infer headers if present
+      for(const rr of domRecords.rows){
+        if(!rr.cells.some(x=>compact(x)===compact(code))) continue;
+        const c=rr.cells; const idx=c.findIndex(x=>compact(x)===compact(code));
+        const text=c.join(' | ');
+        let section='';
+        const sm=text.match(/(?:şube|sube|section|grup|group|branch)\s*[:#-]?\s*([A-Za-z0-9._-]+)/i);
+        if(sm)section=sm[1];
+        rows.push({code:c[idx]||code,section,name:'',instructor:'',day:'',start:'',end:'',room:'',program:'',faculty:'',classYear:'',_domText:text});
       }
-
-      if (!rows.length) notFound.push({...q,reason:codeMatches && q.section?'Şube eşleşmedi veya şube alanı bulunamadı':'Ders kodu bulunamadı'});
-      allRows.push(...rows.map(r=>({...r,requestedSection:q.section})));
-
-      if (debugCode && compactCode(debugCode)===compactCode(q.code)) {
-        debug.candidates=rawObjects.slice(0,40).map(o=>({
-          fields:Object.fromEntries(scalarEntries(o).slice(0,80)),
-          inferred:rowFromObject(o)
-        }));
-        debug.visible=visible.map(v=>({...v,_html:undefined}));
-        debug.dataTablesArrays=dtArrayMatches.slice(0,20);
+      // blocks can expose section even when schedule object is elsewhere
+      for(const b of domRecords.blocks){
+        if(!new RegExp(`\\b${code.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')}\\b`,'i').test(b.text))continue;
+        const sm=b.text.match(/(?:şube|sube|section|grup|group|branch)\s*[:#-]?\s*([A-Za-z0-9._-]+)/i);
+        if(sm) rows.push({code,section:sm[1],name:'',instructor:'',day:'',start:'',end:'',room:'',program:'',faculty:'',classYear:'',_domText:b.text});
       }
+      byCode[code]=dedupe(rows);
     }
-
-    if (search) await search.fill('').catch(()=>{});
-    return {rows:dedupe(allRows),warnings:[...new Set(warnings)],notFound,debug,
-      diagnostics:{source:SOURCE_URL,mode:'DOM + DataTables ham veri + AJAX/JSON şube çözümleme',searchInputDetected:!!search,sectionDetected,jsonResponseCount:jsonPayloads.length}};
-  } finally { await browser.close(); }
+    return {url,payloadUrls:payloads.map(x=>x.url),byCode,bodyPreview:domRecords.body.slice(0,3000),scriptCount:scriptTexts.length};
+  }finally{await browser.close()}
 }
 
-app.get('/api/health',(req,res)=>res.json({ok:true,source:SOURCE_URL}));
+async function getPrimary(codes){
+  try{return await scrapeSource(PRIMARY_URL,codes)}catch(e){return {url:PRIMARY_URL,error:e.message,byCode:Object.fromEntries(codes.map(c=>[c,[]])),payloadUrls:[]}}
+}
 
-app.get('/api/sections', async (req,res)=>{
-  const code=String(req.query.code||'').trim();
-  if(!code) return res.status(400).json({error:'Ders kodu gerekli.'});
-  try {
-    const data=await fetchRequestedLessons([{code,section:''}]);
-    const realSections=[...new Set((data.rows||[])
-      .map(r=>normalizeSection(r.section||''))
-      .filter(Boolean))]
-      .sort((a,b)=>String(a).localeCompare(String(b),'tr',{numeric:true,sensitivity:'base'}));
-    if (realSections.length) {
-      return res.json({
-        code,
-        mode:'real-section',
-        sections:realSections.map(s=>({value:s,label:`Şube ${s}`})),
-        sectionDetected:true,
-        rowCount:(data.rows||[]).length,
-        warning:null
-      });
-    }
-    const groups=inferOfferingGroups(data.rows||[]);
-    res.json({
-      code,
-      mode:'inferred-offering',
-      sections:groups.map(g=>({value:g.id,label:g.label})),
-      sectionDetected:false,
-      rowCount:(data.rows||[]).length,
-      warning:groups.length
-        ? 'AGUCAT bu derste gerçek şube numarasını yayınlamıyor. Programlar öğretim elemanı ve saat bilgisine göre ayrı seçenekler halinde gösteriliyor.'
-        : 'Bu ders için program kaydı bulunamadı.'
-    });
-  } catch(e) {
-    console.error(e);
-    res.status(502).json({error:'Şube bilgileri alınamadı.',detail:e?.message||String(e)});
+async function getFallback(codes){
+  // AGUCAT fallback for schedule details only; no section assumption.
+  try{return await scrapeSource(FALLBACK_URL,codes)}catch(e){return {url:FALLBACK_URL,error:e.message,byCode:Object.fromEntries(codes.map(c=>[c,[]])),payloadUrls:[]}}
+}
+
+function merge(primaryRows,fallbackRows){
+  if(!primaryRows.length) return fallbackRows;
+  // If primary has section but no schedule, enrich by matching instructor when possible.
+  const out=[];
+  for(const p of primaryRows){
+    if(p.day&&p.start&&p.end){out.push(p);continue;}
+    const candidates=fallbackRows.filter(f=>!p.instructor||!f.instructor||norm(f.instructor)===norm(p.instructor));
+    if(candidates.length){for(const f of candidates)out.push({...f,section:p.section||f.section,instructor:p.instructor||f.instructor});}
+    else out.push(p);
   }
-});
+  return dedupe(out);
+}
 
-app.get('/api/debug', async (req,res)=>{
-  const code=String(req.query.code||'').trim();
-  if(!code) return res.status(400).json({error:'code parametresi gerekli. Örn: /api/debug?code=EE3999'});
-  try {
-    const data=await fetchRequestedLessons([{code,section:''}],code);
-    res.json({diagnostics:data.diagnostics,debug:data.debug});
-  } catch(e) { res.status(502).json({error:e?.message||String(e)}); }
+app.get('/api/health',(req,res)=>res.json({ok:true,primary:PRIMARY_URL,fallback:FALLBACK_URL}));
+
+app.get('/api/sections',async(req,res)=>{
+  const code=String(req.query.code||'').trim(); if(!code)return res.status(400).json({error:'Ders kodu gerekli.'});
+  try{
+    const p=await getPrimary([code]);
+    const sections=[...new Set((p.byCode[code]||[]).map(r=>secNorm(r.section)).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'tr',{numeric:true}));
+    if(sections.length) return res.json({code,sections:sections.map(s=>({value:s,label:`Şube ${s}`})),source:PRIMARY_URL,sectionDetected:true});
+    return res.json({code,sections:[],source:PRIMARY_URL,sectionDetected:false,warning:'Güncel resmi timetable kaynağında bu ders için şube numarası okunamadı.'});
+  }catch(e){res.status(502).json({error:'Şube bilgileri alınamadı.',detail:e.message});}
 });
 
 app.post('/api/schedule',async(req,res)=>{
-  try {
-    const courses=(Array.isArray(req.body?.courses)?req.body.courses:[])
-      .map(x=>({code:String(x.code||'').trim(),section:String(x.section||'').trim()})).filter(x=>x.code);
-    if(!courses.length) return res.status(400).json({error:'En az bir ders kodu girin.'});
-    if(courses.length>40) return res.status(400).json({error:'Tek sorguda en fazla 40 ders girilebilir.'});
-    const data=await fetchRequestedLessons(courses);
-    res.json({source:SOURCE_URL,fetchedAt:new Date().toISOString(),sourceHasSection:data.diagnostics.sectionDetected,warnings:data.warnings,notFound:data.notFound,rows:data.rows,diagnostics:data.diagnostics});
-  } catch(e) {
-    console.error(e);
-    res.status(502).json({error:'AGÜ ders programı şu anda okunamadı.',detail:e?.message||String(e),hint:'cat.agu.edu.tr erişimini ve Playwright Chromium kurulumunu kontrol edin.'});
-  }
+  try{
+    const courses=(Array.isArray(req.body?.courses)?req.body.courses:[]).map(x=>({code:String(x.code||'').trim(),section:String(x.section||'').trim()})).filter(x=>x.code);
+    if(!courses.length)return res.status(400).json({error:'En az bir ders kodu girin.'});
+    const codes=[...new Set(courses.map(x=>x.code))];
+    const [p,f]=await Promise.all([getPrimary(codes),getFallback(codes)]);
+    const rows=[],warnings=[],notFound=[];
+    for(const q of courses){
+      const prim=p.byCode[q.code]||[], fall=f.byCode[q.code]||[];
+      let merged=merge(prim,fall).filter(r=>compact(r.code)===compact(q.code));
+      if(q.section){
+        const target=norm(secNorm(q.section));
+        const withSec=merged.filter(r=>r.section&&norm(secNorm(r.section))===target);
+        if(withSec.length) merged=withSec;
+        else {merged=[];warnings.push(`${q.code}: Şube ${q.section} güncel resmi timetable kaynağında doğrulanamadı; başka şubeler gösterilmedi.`);}
+      }
+      // Calendar only renders records with real day/time.
+      merged=merged.filter(r=>r.day&&r.start&&r.end);
+      if(!merged.length)notFound.push({code:q.code,section:q.section,reason:'Ders/şube için gün-saat kaydı doğrulanamadı'});
+      rows.push(...merged.map(r=>({...r,requestedSection:q.section})));
+    }
+    res.json({rows:dedupe(rows),warnings:[...new Set(warnings)],notFound,source:PRIMARY_URL,fallback:FALLBACK_URL,diagnostics:{primaryError:p.error||null,primaryPayloads:p.payloadUrls?.length||0,fallbackError:f.error||null,fallbackPayloads:f.payloadUrls?.length||0}});
+  }catch(e){res.status(502).json({error:'Ders programı okunamadı.',detail:e.message});}
 });
 
-app.listen(PORT,()=>console.log(`AGÜ Ders Programı v7: http://localhost:${PORT}`));
+app.get('/api/debug',async(req,res)=>{
+  const code=String(req.query.code||'').trim(); if(!code)return res.status(400).json({error:'code gerekli'});
+  const p=await getPrimary([code]);
+  const f=await getFallback([code]);
+  res.json({primary:{url:p.url,error:p.error||null,payloadUrls:p.payloadUrls,rows:p.byCode[code],bodyPreview:p.bodyPreview},fallback:{url:f.url,error:f.error||null,payloadUrls:f.payloadUrls,rows:f.byCode[code]}});
+});
+
+app.listen(PORT,()=>console.log(`AGÜ Ders Programı v8: http://localhost:${PORT}`));

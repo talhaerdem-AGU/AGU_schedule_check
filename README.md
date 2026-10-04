@@ -1,11 +1,11 @@
-# AGÜ Ders Programı v7
+# AGÜ Ders Programı v8 (Hosted)
 
-Bu sürüm, AGUCAT kaynak verisinde gerçek şube numarası varsa doğrudan Şube 1/2/3 olarak gösterir.
-
-AGUCAT gerçek şube numarasını yayınlamıyorsa, aynı ders koduna ait farklı programları öğretim elemanı + gün/saat bilgisine göre **Program grubu** olarak ayırır. Böylece tüm şubeler aynı anda takvime düşmez.
+Bu sürüm 2026-2027 için AGÜ Öğrenci İşleri'nin resmi olarak yönlendirdiği `https://calendars.agu.edu.tr/timetable` kaynağını birincil kaynak olarak kullanır. `cat.agu.edu.tr/Lesson/GetLessons` yalnızca gün/saat detayları için yedek kaynaktır.
 
 ## Render
-Repo kökünde `render.yaml` ve `Dockerfile` hazırdır. Render Blueprint ile deploy edilebilir.
+GitHub deposundaki dosyaları bu paketle değiştirin. `render.yaml` ve `Dockerfile` aynı şekilde deploy için kullanılabilir.
 
-## Önemli
-Program grubu, gerçek şube numarası değildir; yalnız AGUCAT'ın herkese açık verisinden güvenli biçimde ayrıştırılabilen program alternatifidir. Gerçek şube numarasının gösterilebilmesi için AGÜ'nün şube bilgisini içeren bir servis/endpoint sağlaması gerekir.
+## Tanı
+`/api/debug?code=EE3999` adresi birincil timetable kaynağında yakalanan ham kayıtları ve AJAX/JSON URL'lerini gösterir.
+
+Not: Gerçek şube numarası hiçbir kamuya açık kaynakta yer almıyorsa uygulama bunu tahmin etmez; yanlış şubeyi göstermemek için sonuç döndürmez.
